@@ -1,0 +1,13 @@
+---
+language: python
+install:
+  - pip install flake8 wheel
+  - pip install -r requirements.txt
+python:
+  - "3.6"
+  - "3.7"
+  - "3.8"
+script:
+  - flake8 .
+  - pytest
+  - python3 setup.py sdist bdist_wheel
