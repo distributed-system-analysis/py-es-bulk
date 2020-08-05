@@ -14,11 +14,13 @@ class MockElasticsearch(object):
         self.indices = mock
 
 
-class MockPutTemplate(object):
-    def __init__(self, behavior=None):
+class MockTemplateApis(object):
+    def __init__(self, behavior=None, mapping_name=None, version=42):
         self.name = None
         self.body = None
         self.behavior = behavior
+        self.mapping_name = mapping_name
+        self.version = 42
 
     def put_template(self, *args, **kwargs):
         assert 'name' in kwargs and 'body' in kwargs
@@ -38,42 +40,70 @@ class MockPutTemplate(object):
                 raise MockException()
             elif behavior == "ce":
                 raise es_excs.ConnectionError(None, "fake ce", Exception())
-            elif behavior in ( "500", "501", "502", "503", "504" ):
-                raise es_excs.TransportError(int(behavior), "fake 50x", Exception())
+            elif behavior in ("500", "501", "502", "503", "504"):
+                raise es_excs.TransportError(
+                    int(behavior), "fake 50x", Exception()
+                )
         return None
+
+    def get_template(self, *args, **kwargs):
+        assert 'name' in kwargs
+        name = kwargs['name']
+        tmpl = dict()
+        if self.mapping_name is not None:
+            tmpl[name] = dict(mappings=dict())
+            tmpl[name]['mappings'][self.mapping_name] = dict(
+                _meta=dict(version=self.version)
+            )
+        else:
+            # Empty dict indicates template not found
+            pass
+        return tmpl
 
 
 class MyTime(object):
     """Monotonically incrementing time based on the # of times the tick()
     method is called."""
+
     def __init__(self):
         self._tick = 0
+
     def tick(self):
         _tick = self._tick
         self._tick += 1
         return _tick
+
 
 # FIXME: mock _calc_sleep_backoff and track backoff numbers
 
 @pytest.fixture(autouse=True)
 def patch_time(monkeypatch):
     clock = MyTime()
+
     def mytime():
         return clock.tick()
+
     monkeypatch.setattr(time, 'time', mytime)
+
 
 @pytest.fixture(autouse=True)
 def patch_sleep(monkeypatch):
+
     def mysleep(*args, **kwargs):
-        return;
+        return
+
     monkeypatch.setattr(time, 'sleep', mysleep)
+
 
 def test_put_template():
     # Assert that a one-n-done call works as expected
-    mpt = MockPutTemplate()
+    mpt = MockTemplateApis()
     es = MockElasticsearch(mpt)
-    body = dict(one=1, two=2)
-    res = put_template(es, "mytemplate", body)
+    mappings = {'prefix-mapname0': {'_meta': {'version': 0}}}
+    body = dict(one=1, two=2, mappings=mappings)
+    res = put_template(
+        es, name="mytemplate", mapping_name="prefix-mapname0", body=body
+    )
     beg, end, retry_count = res
     assert beg == 0
     assert end == 1
@@ -81,23 +111,31 @@ def test_put_template():
     assert mpt.name == "mytemplate"
     assert mpt.body == body
 
+
 def test_put_template_not_retried():
     # Assert that a 500 error is raised as a TransportError exception
-    mpt = MockPutTemplate(behavior=["501"])
+    mpt = MockTemplateApis(behavior=["501"])
     es = MockElasticsearch(mpt)
-    body = dict(one=1, two=2)
-    with pytest.raises(es_excs.TransportError) as excinfo:
-        res = put_template(es, "mytemplate", body)
+    mappings = {'prefix-mapname0': {'_meta': {'version': 0}}}
+    body = dict(one=1, two=2, mappings=mappings)
+    with pytest.raises(es_excs.TransportError):
+        put_template(
+            es, name="mytemplate", mapping_name="prefix-mapname0", body=body
+        )
     assert mpt.name == "mytemplate"
     assert mpt.body == body
+
 
 def test_put_template_retries():
     # Assert that ConnectionErrors and TransportErrors are properly retried
     # until successful.
-    mpt = MockPutTemplate(behavior=["ce", "ce", "ce", "500", "503", "504"])
+    mpt = MockTemplateApis(behavior=["ce", "ce", "ce", "500", "503", "504"])
     es = MockElasticsearch(mpt)
-    body = dict(one=1, two=2)
-    res = put_template(es, "mytemplate", body)
+    mappings = {'prefix-mapname0': {'_meta': {'version': 0}}}
+    body = dict(one=1, two=2, mappings=mappings)
+    res = put_template(
+        es, name="mytemplate", mapping_name="prefix-mapname0", body=body
+    )
     beg, end, retry_count = res
     assert beg == 0
     assert end == 1
@@ -105,13 +143,17 @@ def test_put_template_retries():
     assert mpt.name == "mytemplate"
     assert mpt.body == body
 
+
 def test_put_template_exc():
     # Assert that if es.indices.put_template() raises an unknown exception
     # it is passed along to the caller.
-    mpt = MockPutTemplate(behavior=["exception"])
+    mpt = MockTemplateApis(behavior=["exception"])
     es = MockElasticsearch(mpt)
-    body = dict(one=1, two=2)
-    with pytest.raises(MockException) as excinfo:
-        res = put_template(es, "mytemplate", body)
+    mappings = {'prefix-mapname0': {'_meta': {'version': 0}}}
+    body = dict(one=1, two=2, mappings=mappings)
+    with pytest.raises(MockException):
+        put_template(
+            es, name="mytemplate", mapping_name="prefix-mapname0", body=body
+        )
     assert mpt.name == "mytemplate"
     assert mpt.body == body
