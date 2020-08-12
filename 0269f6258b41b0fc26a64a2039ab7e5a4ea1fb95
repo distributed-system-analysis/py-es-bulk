@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "key": {
+        "uuid": "2ebf85c5_c9f0990d",
+        "filename": "tests/functests.py",
+        "patchSetId": 1
+      },
+      "lineNbr": 13,
+      "author": {
+        "id": 1018214
+      },
+      "writtenOn": "2020-08-12T13:46:54Z",
+      "side": 1,
+      "message": "This is just a test comment on GerritHub to see if it gets reflected back to GitHub. I have nothing else to say. ;-)",
+      "revId": "0269f6258b41b0fc26a64a2039ab7e5a4ea1fb95",
+      "serverId": "d5d70762-12d0-45a1-890d-524b12d3f735",
+      "unresolved": true
+    }
+  ]
+}
