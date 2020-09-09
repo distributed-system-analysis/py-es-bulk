@@ -1,7 +1,7 @@
 ---
 language: python
 install:
-  - pip install flake8 wheel
+  - pip install flake8==3.8.3 wheel
   - pip install -r requirements.txt
 python:
   - "3.6"

@@ -139,17 +139,16 @@ def put_template(es, name=None, mapping_name=None, body=None):
             if exc.status_code == 404:
                 # We expected a "not found", we'll PUT below.
                 pass
-            elif exc.status_code < 500:
-                # All other non-5xx codes are some kind of error
-                raise
-            else:
+            elif exc.status_code in _RETRY_5xxS:
                 # Only retry on certain 5xx errors
-                if exc.status_code not in _RETRY_5xxS:
-                    raise
                 _sleep_w_backoff(backoff)
                 backoff += 1
                 retry_count += 1
                 continue
+            else:
+                # All other error codes are some kind of error we don't attempt
+                # to retry.
+                raise
         else:
             try:
                 tmpl_ver = int(
@@ -171,12 +170,15 @@ def put_template(es, name=None, mapping_name=None, body=None):
             if exc.status_code < 500:
                 # Somehow the PUT payload was in error, don't retry.
                 raise
-            elif exc.status_code not in _RETRY_5xxS:
+            elif exc.status_code in _RETRY_5xxS:
                 # Only retry on certain 500 errors
+                _sleep_w_backoff(backoff)
+                backoff += 1
+                retry_count += 1
+            else:
+                # All other error codes are some kind of error we don't attempt
+                # to retry.
                 raise
-            _sleep_w_backoff(backoff)
-            backoff += 1
-            retry_count += 1
         else:
             retry = False
     end = time.time()
@@ -193,7 +195,8 @@ def streaming_bulk(es, actions, errorsfp, logger):
         es - An Elasticsearch client object already constructed
         actions - An iterable for the documents to be indexed
         errorsfp - A file pointer for where to write 400 errors
-        logger - A python logging object to use to report behaviors
+        logger - A python logging object to use to report behaviors;
+                 (the logger is expected to handle {} formatting)
 
     Returns:
 
@@ -285,8 +288,7 @@ def streaming_bulk(es, actions, errorsfp, logger):
             status = resp["status"]
         except KeyError as e:
             assert not ok, f"ok = {ok!r}, e = {e!r}"
-            # Limit the length of the error message.
-            logger.error("{!r}"[:_MAX_ERRMSG_LENGTH], e)
+            logger.error("{!r}", e)
             status = 999
         else:
             assert action["_id"] == resp["_id"], (
