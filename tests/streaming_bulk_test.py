@@ -1,21 +1,20 @@
 import io
 import json
 import time
+import logging
 from collections import Counter
 from elasticsearch1 import helpers
-
-import pytest
 
 from pyesbulk import streaming_bulk
 from tests.put_template_test import MyTime
 
 
-class MockElasticsearch(object):
+class MockElasticsearch():
     def __init__(self):
         pass
 
 
-class MockStreamingBulk(object):
+class MockStreamingBulk():
     def __init__(self, max_actions):
         self.max_actions = max_actions
         self.actions_l = []
@@ -33,7 +32,7 @@ class MockStreamingBulk(object):
             if self.index_tracker[action['_index']] <= self.max_actions:
                 self.actions_l.append(action)
             resp = {}
-            resp[action['_op_type']] = { '_id': action['_id'] }
+            resp[action['_op_type']] = {'_id': action['_id']}
             if dcnt > 2:
                 # Report each duplicate
                 resp[action['_op_type']]['status'] = 409
@@ -50,11 +49,16 @@ class MockStreamingBulk(object):
         total_dupes = 0
         total_multi_dupes = 0
         for docid in self.duplicates_tracker:
-            total_dupes += self.duplicates_tracker[docid] if self.duplicates_tracker[docid] > 1 else 0
+            total_dupes += 0 if (
+                    self.duplicates_tracker[docid] <= 1
+                ) else self.duplicates_tracker[docid]
             if self.duplicates_tracker[docid] >= 2:
                 total_multi_dupes += 1
         if total_dupes > 0:
-            print("Duplicates: ", total_dupes, "Multiple dupes: ", total_multi_dupes)
+            print(
+                f"Duplicates: {total_dupes},"
+                f" Multiple dupes: {total_multi_dupes}"
+            )
         for idx in sorted(self.dupes_by_index_tracker.keys()):
             print("Index dupes: ", idx, self.dupes_by_index_tracker[idx])
         print("len(actions) = {}".format(len(self.actions_l)))
@@ -66,12 +70,16 @@ def test_streaming_bulk(monkeypatch):
     mock = MockStreamingBulk(15)
     with monkeypatch.context() as m:
         clock = MyTime()
+
         def mytime():
             return clock.tick()
+
         m.setattr(time, 'time', mytime)
+
         def mysleep(*args, **kwargs):
-            return;
+            return
+
         m.setattr(time, 'sleep', mysleep)
         m.setattr(helpers, 'streaming_bulk', mock.streaming_bulk)
         with io.StringIO() as errorfp:
-            streaming_bulk(es, [], errorfp)
+            streaming_bulk(es, [], errorfp, logging.getLogger())

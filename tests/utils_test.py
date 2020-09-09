@@ -3,19 +3,22 @@ import pytest
 
 from pyesbulk import _tstos, _calc_backoff_sleep, _r
 
-@pytest.fixture(name="mockgmtime")
-def patch_time(monkeypatch):
-    st = time.gmtime(873417700)
-    def mygmtime(cls):
-        return st
-    monkeypatch.setattr(time, 'gmtime', mygmtime)
 
-@pytest.mark.usefixtures("mockgmtime")
+@pytest.fixture(name="mocktime")
+def patch_time(monkeypatch):
+    def mytime():
+        return 873417700
+    monkeypatch.setattr(time, 'time', mytime)
+
+
+@pytest.mark.usefixtures("mocktime")
 def test_tstos():
     assert _tstos() == "1997-09-05T00:01:40-UTC"
 
+
 def test_tstos_w_param():
     assert _tstos(873417600) == "1997-09-05T00:00:00-UTC"
+
 
 @pytest.fixture(name="mockuniform")
 def patch_uniform(monkeypatch):
@@ -23,6 +26,7 @@ def patch_uniform(monkeypatch):
         assert zero == 0
         return m
     monkeypatch.setattr(_r, 'uniform', myuniform)
+
 
 @pytest.mark.usefixtures("mockuniform")
 def test_calc_backoff_sleep():
