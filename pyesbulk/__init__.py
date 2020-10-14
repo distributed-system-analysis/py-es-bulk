@@ -8,27 +8,66 @@ import json
 import logging
 import math
 import time
+import inspect
+import importlib
+from pathlib import Path
 
 from collections import Counter, deque
 from datetime import datetime, tzinfo, timedelta
 from random import SystemRandom
 
-try:
-    from elasticsearch1 import (
-        VERSION as es_VERSION, helpers, exceptions as es_excs
-    )
-    _es_logger = "elasticsearch1"
-except ImportError:
-    from elasticsearch import (
-        VERSION as es_VERSION, helpers, exceptions as es_excs
-    )
-    _es_logger = "elasticsearch"
-assert es_VERSION[0] == 1, (
-    "INTERNAL ERROR: only Elasticsearch V1 client is currently supported."
-)
+def _import_elasticsearch(es):
+    """
+    _import_elasticsearch Import the necessary Elasticsearch attributes from
+    the Elasticsearch module used to create an Elasticsearch instance, and
+    binds the 'exceptions' sub-module globally as "es_excs" and the 'helpers'
+    sub-module globally as 'helpers'.
+
+    NOTE: simply importing 'elasticsearch' won't work if the caller is using
+    'elasticsearch1' (or vice versa), because the 'es_excs' exception classes
+    won't match our 'except' clauses, and template registration won't work!
+
+    Args:
+        es (Elasticsearch): An Elasticsearch object
+    """
+
+    # Get the file path of the Elasticsearch class
+    es_import = Path(inspect.getfile(type(es)))
+
+    # Walk up the file path to the directory that contains
+    # "elasticsearch" ... this should be either "elasticsearch1" for a V1
+    # or "elasticsearch" for a later version.
+    #
+    # In a unit test environment, we won't recognize the mock path, and
+    # for that and as a fallback, if we get to the root without finding
+    # a match, just import 'elasticsearch'.
+    path = es_import.parent
+    while 'elasticsearch' not in path.name and path.name != '':
+        path = path.parent
+    module = path.name
+    if module == '':
+        module = 'elasticsearch'
+
+    # Dymamically import the module so that we can identify, import, and
+    # bind the sub-modules we need.
+    es_module = importlib.import_module(module)
+ 
+    # I don't know why 'exceptions' is visible as an attribute of the module
+    # but 'helpers' isn't. Therefore, the import mechanism is different. We are
+    # manually binding global names matching the original static imports.
+    g = globals()
+    g['es_excs'] = importlib.import_module(getattr(es_module, 'exceptions').__name__)
+    g['helpers'] = importlib.import_module(es_module.__name__ + '.helpers')
+
+
+# try:
+#     from elasticsearch import Elasticsearch, helpers, VERSION, exceptions as es_excs
+#     assert VERSION[0] == 7, "Pbench currently requires Elasticsearch V7.x"
+# except ImportError:
+#     assert False, "Elasticsearch Python module is required"
 
 # Version of py-es-bulk
-__VERSION__ = "1.0.0"
+__VERSION__ = "2.0.0"
 
 # Use the random number generator provided by the host OS to calculate our
 # random backoff.
@@ -46,7 +85,6 @@ _op_type = "create"
 _request_timeout = 100000*60.0
 # Maximum length of messages logged by streaming_bulk()
 _MAX_ERRMSG_LENGTH = 16384
-
 
 class simple_utc(tzinfo):
     def tzname(self, *args, **kwargs):
@@ -81,12 +119,65 @@ def quiet_loggers():
     A convenience function to quiet the urllib3 and elasticsearch1 loggers.
     """
     logging.getLogger("urllib3").setLevel(logging.FATAL)
-    logging.getLogger(_es_logger).setLevel(logging.FATAL)
+    logging.getLogger("elasticsearch").setLevel(logging.FATAL)
 
 
 # The 5xx codes on which template PUT operations are retried.
 _RETRY_5xxS = [500, 503, 504]
 
+def _get_meta_version(name, body):
+    """
+    _get_meta_version Try to find an "_meta":{"version": "value"} in the
+    specified template body.
+
+    For V7 and beyond, a template should not have a name, which means the
+    mapping body includes an "_meta" key directly.
+
+    For V6 and V7 there may be an "_doc" key in the top level dict, which
+    will have "_meta" as a second level key.
+
+    Earlier versions will normally have a "document type" as the first
+    level key, with "_meta" underneath.
+
+    We're being accommodating here: if the first level dict includes an
+    "_meta" key, we'll use it. If not, and the first level dict has a single
+    key, we'll look for "_meta" under that.
+
+    Args:
+        body (dict): An Elasticsearch index document template "mappings"
+        document.
+    """
+    if not isinstance(body,dict):
+        raise TypeError
+    underbody = body
+    if "_meta" not in body:
+        # Elasticsearch V1 allows multiple named templates, but since they're
+        # going into the same index we require that the versions be the same
+        # since we can return only one.
+        underbody = body[next(iter(body))]
+        version = None
+        for key in body:
+            try:
+                v = int(body[key]['_meta']['version'])
+                if not version:
+                    version = v
+                else:
+                    if v != version:
+                        raise Exception(
+                            f"Bad template, multiple templates with "
+                                "differing versions at {key}"
+                        )
+            except KeyError:
+                raise Exception(
+                    f"Bad template, {key}: '_meta' version missing from template"
+                )
+    try:
+        version = int(underbody["_meta"]["version"])
+        return version
+    except KeyError:
+        raise Exception(
+            f"Bad template, {name}: '_meta' version missing from template"
+        )
 
 def put_template(es, name=None, mapping_name=None, body=None):
     """
@@ -113,22 +204,25 @@ def put_template(es, name=None, mapping_name=None, body=None):
         Failure modes are raised as exceptions.
     """
     assert name is not None and mapping_name is not None and body is not None
+    _import_elasticsearch(es)
     retry = True
     retry_count = 0
     original_no_version = False
     backoff = 1
     beg, end = time.time(), None
-    try:
-        body_ver = int(body["mappings"][mapping_name]["_meta"]["version"])
-    except KeyError:
-        raise Exception(
-            f"Bad template, {name}: mapping name, '{mapping_name}',"
-            " missing from template"
-        )
+    mapping = body["mappings"]
+    body_ver = _get_meta_version(name, mapping)
     while retry:
         original_no_version = False  # Initialized twice for proper scope
         try:
             tmpl = es.indices.get_template(name=name)
+        except es_excs.NotFoundError as exc:
+            if exc.status_code == 404:
+                # We expected a "not found", we'll PUT below.
+                pass
+            else:
+                # Not sure what to do here? Can it be anything except 404?
+                raise
         except es_excs.ConnectionError:
             # We retry all connection errors
             _sleep_w_backoff(backoff)
@@ -137,7 +231,9 @@ def put_template(es, name=None, mapping_name=None, body=None):
             continue
         except es_excs.TransportError as exc:
             if exc.status_code == 404:
-                # We expected a "not found", we'll PUT below.
+                # We expected a "not found", we'll PUT below. NOTE: this may
+                # trigger on Elasticsearch 1, but on Elasticsearch 7 a 404
+                # is instead packaged as a NotFoundError exception!
                 pass
             elif exc.status_code in _RETRY_5xxS:
                 # Only retry on certain 5xx errors
@@ -149,11 +245,12 @@ def put_template(es, name=None, mapping_name=None, body=None):
                 # All other error codes are some kind of error we don't attempt
                 # to retry.
                 raise
+        except Exception as e:
+            print(f'Unexpected exception checking {name}: {e!r}: {type(e).__name__}, keys {e.__dict__.keys()}')
+            raise
         else:
             try:
-                tmpl_ver = int(
-                    tmpl[name]["mappings"][mapping_name]["_meta"]["version"]
-                )
+                tmpl_ver = _get_meta_version(name, tmpl[name]["mappings"])
             except KeyError:
                 original_no_version = True
             else:
@@ -179,6 +276,9 @@ def put_template(es, name=None, mapping_name=None, body=None):
                 # All other error codes are some kind of error we don't attempt
                 # to retry.
                 raise
+        except Exception as e:
+            print(f'Unexpected exception checking {name}: {e!r}: {type(e).__name__}, keys {e.__dict__.keys()}')
+            raise
         else:
             retry = False
     end = time.time()
@@ -263,6 +363,7 @@ def _internal_bulk(es, actions, errorsfp, bulk_method, logger, **kwargs):
         duplicate, and failed documents, along with number of times a bulk
         request was retried.
     """
+    _import_elasticsearch(es)
 
     # These need to be defined before the closure below. These work because
     # a closure remembers the binding of a name to an object. If integer
@@ -276,7 +377,7 @@ def _internal_bulk(es, actions, errorsfp, bulk_method, logger, **kwargs):
 
     def actions_tracking_closure(cl_actions):
         for cl_action in cl_actions:
-            for field in ("_id", "_index", "_type"):
+            for field in ("_id", "_index"):
                 assert (
                     field in cl_action
                 ), f"Action missing '{field}' field: {cl_action!r}"
