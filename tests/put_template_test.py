@@ -1,6 +1,6 @@
 import time
 import pytest
-from elasticsearch1 import exceptions as es_excs
+from elasticsearch import exceptions as es_excs
 
 from pyesbulk import put_template
 
@@ -100,6 +100,24 @@ def test_put_template():
     mpt = MockTemplateApis()
     es = MockElasticsearch(mpt)
     mappings = {'prefix-mapname0': {'_meta': {'version': 0}}}
+    body = dict(one=1, two=2, mappings=mappings)
+    res = put_template(
+        es, name="mytemplate", mapping_name="prefix-mapname0", body=body
+    )
+    beg, end, retry_count, note = res
+    assert beg == 0
+    assert end == 1
+    assert retry_count == 0
+    assert note == "original-no-version"
+    assert mpt.name == "mytemplate"
+    assert mpt.body == body
+
+
+def test_put_template_noname():
+    # Assert that there's nothing requiring a doc type
+    mpt = MockTemplateApis()
+    es = MockElasticsearch(mpt)
+    mappings = {'_meta': {'version': 0}}
     body = dict(one=1, two=2, mappings=mappings)
     res = put_template(
         es, name="mytemplate", mapping_name="prefix-mapname0", body=body

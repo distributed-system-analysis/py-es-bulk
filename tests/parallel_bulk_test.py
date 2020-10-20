@@ -3,7 +3,7 @@ import json
 import time
 import logging
 from collections import Counter
-from elasticsearch1 import helpers
+from elasticsearch import helpers
 
 from pyesbulk import parallel_bulk
 from tests.put_template_test import MyTime
