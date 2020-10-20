@@ -247,7 +247,7 @@ def put_template(
                 raise
         except Exception as e:
             logger.error(
-                f"Unexpected exception checking %s: %r", name, e
+                "Unexpected exception checking %s: %r", name, e
             )
             raise
         else:
@@ -280,7 +280,7 @@ def put_template(
                 raise
         except Exception as e:
             logger.error(
-                f"Unexpected exception checking %s: %r", name, e
+                "Unexpected exception checking %s: %r", name, e
             )
             raise
         else:
