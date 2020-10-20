@@ -112,6 +112,7 @@ def test_put_template():
     assert mpt.name == "mytemplate"
     assert mpt.body == body
 
+
 def test_put_template_noname():
     # Assert that there's nothing requiring a doc type
     mpt = MockTemplateApis()

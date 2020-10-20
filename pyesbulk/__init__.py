@@ -16,6 +16,16 @@ from collections import Counter, deque
 from datetime import datetime, tzinfo, timedelta
 from random import SystemRandom
 
+# We're going to dynamically bind imported modules to these names that
+# match with the Elasticsearch object passed by our client. These
+# declarations serve mostly as documentation, since they're not necessary
+# for Python, and don't appear to help flake8 analysis. Note that uses of
+# these names in code are annotated with "noqa" line comments to avoid
+# failing the flake8 scan.
+global helpers
+global es_excs
+
+
 def _import_elasticsearch(es):
     """
     _import_elasticsearch Import the necessary Elasticsearch attributes from
@@ -42,29 +52,25 @@ def _import_elasticsearch(es):
     # for that and as a fallback, if we get to the root without finding
     # a match, just import 'elasticsearch'.
     path = es_import.parent
-    while 'elasticsearch' not in path.name and path.name != '':
+    while "elasticsearch" not in path.name and path.name != "":
         path = path.parent
     module = path.name
-    if module == '':
-        module = 'elasticsearch'
+    if module == "":
+        module = "elasticsearch"
 
     # Dymamically import the module so that we can identify, import, and
     # bind the sub-modules we need.
     es_module = importlib.import_module(module)
- 
+
     # I don't know why 'exceptions' is visible as an attribute of the module
     # but 'helpers' isn't. Therefore, the import mechanism is different. We are
     # manually binding global names matching the original static imports.
     g = globals()
-    g['es_excs'] = importlib.import_module(getattr(es_module, 'exceptions').__name__)
-    g['helpers'] = importlib.import_module(es_module.__name__ + '.helpers')
+    g["es_excs"] = importlib.import_module(
+        getattr(es_module, "exceptions").__name__
+    )
+    g["helpers"] = importlib.import_module(es_module.__name__ + ".helpers")
 
-
-# try:
-#     from elasticsearch import Elasticsearch, helpers, VERSION, exceptions as es_excs
-#     assert VERSION[0] == 7, "Pbench currently requires Elasticsearch V7.x"
-# except ImportError:
-#     assert False, "Elasticsearch Python module is required"
 
 # Version of py-es-bulk
 __VERSION__ = "2.0.0"
@@ -82,9 +88,10 @@ _op_type = "create"
 # 100,000 minute timeout talking to Elasticsearch; basically we just don't
 # want to timeout waiting for Elasticsearch and then have to retry, as that
 # can add undue burden to the Elasticsearch cluster.
-_request_timeout = 100000*60.0
+_request_timeout = 100000 * 60.0
 # Maximum length of messages logged by streaming_bulk()
 _MAX_ERRMSG_LENGTH = 16384
+
 
 class simple_utc(tzinfo):
     def tzname(self, *args, **kwargs):
@@ -125,6 +132,7 @@ def quiet_loggers():
 # The 5xx codes on which template PUT operations are retried.
 _RETRY_5xxS = [500, 503, 504]
 
+
 def _get_meta_version(name, body):
     """
     _get_meta_version Try to find an "_meta":{"version": "value"} in the
@@ -147,7 +155,7 @@ def _get_meta_version(name, body):
         body (dict): An Elasticsearch index document template "mappings"
         document.
     """
-    if not isinstance(body,dict):
+    if not isinstance(body, dict):
         raise TypeError
     underbody = body
     if "_meta" not in body:
@@ -158,28 +166,32 @@ def _get_meta_version(name, body):
         version = None
         for key in body:
             try:
-                v = int(body[key]['_meta']['version'])
+                v = int(body[key]["_meta"]["version"])
                 if not version:
                     version = v
                 else:
                     if v != version:
                         raise Exception(
                             f"Bad template, multiple templates with "
-                                "differing versions at {key}"
+                            "differing versions at {key}"
                         )
             except KeyError:
                 raise Exception(
-                    f"Bad template, {key}: '_meta' version missing from template"
+                    f"Bad template, {key}: template has no '_meta' version"
                 )
     try:
         version = int(underbody["_meta"]["version"])
-        return version
     except KeyError:
         raise Exception(
             f"Bad template, {name}: '_meta' version missing from template"
         )
+    else:
+        return version
 
-def put_template(es, name=None, mapping_name=None, body=None):
+
+def put_template(
+        es, name=None, mapping_name=None, body=None, client_logger=None
+):
     """
     put_template(es, name, mapping_name, body)
 
@@ -192,6 +204,7 @@ def put_template(es, name=None, mapping_name=None, body=None):
         name - The name of the template to use
         mapping_name - The name of the mapping used in the template
         body - The payload body of the template
+        client_logger - a logger to use for errors
 
     Returns:
 
@@ -205,6 +218,11 @@ def put_template(es, name=None, mapping_name=None, body=None):
     """
     assert name is not None and mapping_name is not None and body is not None
     _import_elasticsearch(es)
+    logger = client_logger
+
+    # Piggyback on the Elasticsearch logger if the client doesn't give one.
+    if not logger:
+        logger = logging.getLogger("elasticsearch")
     retry = True
     retry_count = 0
     original_no_version = False
@@ -216,20 +234,20 @@ def put_template(es, name=None, mapping_name=None, body=None):
         original_no_version = False  # Initialized twice for proper scope
         try:
             tmpl = es.indices.get_template(name=name)
-        except es_excs.NotFoundError as exc:
+        except es_excs.NotFoundError as exc:    # noqa
             if exc.status_code == 404:
                 # We expected a "not found", we'll PUT below.
                 pass
             else:
                 # Not sure what to do here? Can it be anything except 404?
                 raise
-        except es_excs.ConnectionError:
+        except es_excs.ConnectionError:         # noqa
             # We retry all connection errors
             _sleep_w_backoff(backoff)
             backoff += 1
             retry_count += 1
             continue
-        except es_excs.TransportError as exc:
+        except es_excs.TransportError as exc:   # noqa
             if exc.status_code == 404:
                 # We expected a "not found", we'll PUT below. NOTE: this may
                 # trigger on Elasticsearch 1, but on Elasticsearch 7 a 404
@@ -246,7 +264,9 @@ def put_template(es, name=None, mapping_name=None, body=None):
                 # to retry.
                 raise
         except Exception as e:
-            print(f'Unexpected exception checking {name}: {e!r}: {type(e).__name__}, keys {e.__dict__.keys()}')
+            logger.error(
+                f"Unexpected exception checking %s: %r", name, e
+            )
             raise
         else:
             try:
@@ -258,12 +278,12 @@ def put_template(es, name=None, mapping_name=None, body=None):
                     break
         try:
             es.indices.put_template(name=name, body=body)
-        except es_excs.ConnectionError:
+        except es_excs.ConnectionError:         # noqa
             # We retry all connection errors
             _sleep_w_backoff(backoff)
             backoff += 1
             retry_count += 1
-        except es_excs.TransportError as exc:
+        except es_excs.TransportError as exc:   # noqa
             if exc.status_code < 500:
                 # Somehow the PUT payload was in error, don't retry.
                 raise
@@ -277,7 +297,9 @@ def put_template(es, name=None, mapping_name=None, body=None):
                 # to retry.
                 raise
         except Exception as e:
-            print(f'Unexpected exception checking {name}: {e!r}: {type(e).__name__}, keys {e.__dict__.keys()}')
+            logger.error(
+                f"Unexpected exception checking %s: %r", name, e
+            )
             raise
         else:
             retry = False
@@ -305,7 +327,7 @@ def streaming_bulk(es, actions, errorsfp, logger):
         request was retried.
     """
     return _internal_bulk(
-        es, actions, errorsfp, helpers.streaming_bulk, logger
+        es, actions, errorsfp, helpers.streaming_bulk, logger   # noqa
     )
 
 
@@ -336,7 +358,7 @@ def parallel_bulk(
         request was retried.
     """
     return _internal_bulk(
-        es, actions, errorsfp, helpers.parallel_bulk, logger,
+        es, actions, errorsfp, helpers.parallel_bulk, logger,   # noqa
         chunk_size=chunk_size, max_chunk_bytes=max_chunk_bytes,
         thread_count=thread_count, queue_size=queue_size
     )
@@ -532,7 +554,8 @@ def _internal_bulk(es, actions, errorsfp, bulk_method, logger, **kwargs):
 
     if len(actions_deque) > 0:
         logger.error(
-            "We still have {:d} actions in the deque", len(actions_deque)
+            "We still have {:d} actions in the deque",
+            len(actions_deque)
         )
     if len(actions_retry_deque) > 0:
         logger.error(
@@ -541,5 +564,5 @@ def _internal_bulk(es, actions, errorsfp, bulk_method, logger, **kwargs):
         )
 
     return (
-        beg, end, successes, duplicates, failures, retries_tracker['retries']
+        beg, end, successes, duplicates, failures, retries_tracker["retries"]
     )
