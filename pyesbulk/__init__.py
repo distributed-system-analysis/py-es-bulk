@@ -150,35 +150,30 @@ def _get_meta_version(name, body):
     if not isinstance(body, dict):
         raise TypeError
     underbody = body
-    if "_meta" not in body:
-        # Elasticsearch V1 allows multiple named templates, but since they're
-        # going into the same index we require that the versions be the same
-        # since we can return only one.
-        underbody = body[next(iter(body))]
-        version = None
-        for key in body:
-            try:
+    version = None
+    try:
+        if "_meta" not in body:
+            # Elasticsearch V1 allows multiple named templates in an index;
+            # we require that the versions be the same since we can return
+            # only one.
+            underbody = body[next(iter(body))]
+            for key in body:
                 v = int(body[key]["_meta"]["version"])
                 if not version:
                     version = v
                 else:
                     if v != version:
                         raise Exception(
-                            f"Bad template, multiple templates with "
+                            f"Bad template, {name}: multiple templates with "
                             "differing versions at {key}"
                         )
-            except KeyError:
-                raise Exception(
-                    f"Bad template, {key}: template has no '_meta' version"
-                )
-    try:
-        version = int(underbody["_meta"]["version"])
+        else:
+            version = int(underbody["_meta"]["version"])
     except KeyError:
         raise Exception(
-            f"Bad template, {name}: '_meta' version missing from template"
+            f"Bad template, {name}: '_meta version' missing from template"
         )
-    else:
-        return version
+    return version
 
 
 def put_template(
