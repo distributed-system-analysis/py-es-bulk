@@ -2,7 +2,7 @@ import time
 import pytest
 from elasticsearch import exceptions as es_excs
 
-from pyesbulk import put_template
+from pyesbulk import put_template, TemplateException
 
 
 class MockException(Exception):
@@ -129,6 +129,28 @@ def test_put_template_noname():
     assert note == "original-no-version"
     assert mpt.name == "mytemplate"
     assert mpt.body == body
+
+
+def test_put_template_no_meta():
+    mpt = MockTemplateApis()
+    es = MockElasticsearch(mpt)
+    mappings = {'_meta': {'versio': 0}}
+    body = dict(one=1, two=2, mappings=mappings)
+    with pytest.raises(TemplateException):
+        put_template(
+            es, name="mytemplate", mapping_name="prefix-mapname0", body=body
+        )
+
+
+def test_put_template_named_no_meta():
+    mpt = MockTemplateApis()
+    es = MockElasticsearch(mpt)
+    mappings = {'pbench-run': {'meta': {"version": 0}}}
+    body = dict(one=1, two=2, mappings=mappings)
+    with pytest.raises(TemplateException):
+        put_template(
+            es, name="mytemplate", mapping_name="prefix-mapname0", body=body
+        )
 
 
 def test_put_template_not_retried():
