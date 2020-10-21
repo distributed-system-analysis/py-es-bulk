@@ -17,6 +17,20 @@ from datetime import datetime, tzinfo, timedelta
 from random import SystemRandom
 
 
+class TemplateException(Exception):
+    """
+    TemplateException This is raised to report problems with the template
+    payloads provided to put_template.
+
+    The client called put_template with a template body document that does not
+    contain a {"_meta": {"version": <int>}} clause, or a body containing more
+    than one template document which have differing versions.
+
+    The text representation of the exception will contain details.
+    """
+    pass
+
+
 def _import_elasticsearch(es):
     """
     _import_elasticsearch Import the necessary Elasticsearch attributes from
@@ -65,7 +79,7 @@ def _import_elasticsearch(es):
 
 
 # Version of py-es-bulk
-__VERSION__ = "2.0.0"
+__VERSION__ = "2.0.1"
 
 # Use the random number generator provided by the host OS to calculate our
 # random backoff.
@@ -163,14 +177,14 @@ def _get_meta_version(name, body):
                     version = v
                 else:
                     if v != version:
-                        raise Exception(
+                        raise TemplateException(
                             f"Bad template, {name}: multiple templates with "
                             "differing versions at {key}"
                         )
         else:
             version = int(underbody["_meta"]["version"])
     except KeyError:
-        raise Exception(
+        raise TemplateException(
             f"Bad template, {name}: '_meta version' missing from template"
         )
     return version
@@ -184,6 +198,14 @@ def put_template(
 
     Updates a given template when the version of the template as
     stored in the mapping is different from the existing one.
+
+    put_template requires that each template document contain a "_meta"
+    clause with an integer "version" field, e.g.,
+
+        {"_meta": {"version": 4}, "properties": {...}}
+
+    If the `put_template` body contains multiple template documents, they
+    must each have a version, and those versions must all be the same.
 
     Arguments:
 
@@ -201,6 +223,12 @@ def put_template(
         updated has no version number).
 
         Failure modes are raised as exceptions.
+
+    Raises:
+
+        TemplateException signals that a template is not compatible with the
+        format pyesbulk expects. (Specifically with the version metadata
+        requirements described above.)
     """
     assert name is not None and mapping_name is not None and body is not None
     _import_elasticsearch(es)
