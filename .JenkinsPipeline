@@ -11,7 +11,7 @@ pipeline {
         stage('Linting') {
             steps {
                 echo 'Linting ... hi pbench-ci-multi!'
-                sh 'podman run -it --userns=keep-id --volume $(pwd):/home/pbench:z -w /home/pbench --rm quay.io/pbench/pbench-devel:jenkins /bin/bash -c \'flake8; pytest''
+                sh 'podman run -it --userns=keep-id --volume $(pwd):/home/pbench:z -w /home/pbench --rm quay.io/pbench/pbench-devel:jenkins /bin/bash -c \'flake8; pytest\''
                 echo '... Linted'
             }
         }
