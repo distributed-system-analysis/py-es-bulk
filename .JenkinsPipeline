@@ -4,7 +4,7 @@ pipeline {
         stage('Tests') {
             steps {
                 echo 'Testing'
-                sh 'podman run -it --volume /home/jenkins/slave/workspace/pyesbulk-ci:/home/pbench:z -w /home/pbench --rm quay.io/pbench/pbench-devel:jenkins /bin/bash -c \'pip3 install flake8 pytest;flake8; pytest\''
+                sh 'podman run -it --volume /home/jenkins/slave/workspace/pyesbulk-multi-ci_master:/home/pbench:z -w /home/pbench --rm quay.io/pbench/pbench-devel:jenkins /bin/bash -c \'pip3 install flake8 pytest;flake8; pytest\''
                 echo '... Done'
             }
         }
