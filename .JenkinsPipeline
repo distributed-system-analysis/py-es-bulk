@@ -1,18 +1,11 @@
 pipeline {
-    agent { label 'pbench' }
+    agent { label 'pyesbulk' }
     stages {
-        stage('Unit Tests') {
+        stage('Tests') {
             steps {
-                echo 'Unit tests for a PR !!'
-                sh 'podman --version'
-                sh 'buildah --version'
-            }
-        }
-        stage('Linting') {
-            steps {
-                echo 'Linting ... hi pbench-ci-multi!'
-                sh 'podman run -it --userns=keep-id --volume $(pwd):/home/pbench:z -w /home/pbench --rm quay.io/pbench/pbench-devel:jenkins /bin/bash -c \'flake8; pytest\''
-                echo '... Linted'
+                echo 'Testing'
+                sh 'podman run -it --volume /home/jenkins/slave/workspace/pyesbulk-ci:/home/pbench:z -w /home/pbench --rm quay.io/pbench/pbench-devel:jenkins /bin/bash -c \'pip3 install flake8 pytest;flake8; pytest\''
+                echo '... Done'
             }
         }
     }
