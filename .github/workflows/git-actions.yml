@@ -1,0 +1,31 @@
+name: Pre-submit tests
+
+# TODO: This could be retrofitted on top of a `pbench-devel` container, as
+# done for pbench.
+
+on: [pull_request, push]
+
+jobs:
+  pre-submit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python 3.6
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.6
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8==3.8.3 pytest wheel
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --show-source --statistics
+      - name: Run unit tests
+        run: |
+          pytest
+      - name: Re-invent the wheel
+        run: |
+          python3 setup.py sdist bdist_wheel
