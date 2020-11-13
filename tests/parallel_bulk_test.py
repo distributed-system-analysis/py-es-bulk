@@ -11,7 +11,7 @@ from tests.put_template_test import MyTime
 
 class MockElasticsearch():
     def __init__(self):
-        pass
+        self.force_elastic_search_module = "elasticsearch"
 
 
 class MockStreamingBulk():

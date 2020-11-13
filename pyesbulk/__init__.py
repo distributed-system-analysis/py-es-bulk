@@ -31,7 +31,7 @@ class TemplateException(Exception):
     pass
 
 
-def _import_elasticsearch(es):
+def _import_elasticsearch(es, logger):
     """
     _import_elasticsearch Import the necessary Elasticsearch attributes from
     the Elasticsearch module used to create an Elasticsearch instance, and
@@ -44,24 +44,43 @@ def _import_elasticsearch(es):
 
     Args:
         es (Elasticsearch): An Elasticsearch object
+        logger: A logger object
     """
+    module = None
+    try:
+        module = es.force_elastic_search_module
+        logger.info("Using Elasticsearch module '%s'", module)
+    except AttributeError:
+        # No override was specified, so we'll look for a real module path
+        logger.info(
+            "Attempting to determine Elasticsearch module algorithmically"
+        )
 
-    # Get the file path of the Elasticsearch class
-    es_import = Path(inspect.getfile(type(es)))
+    if not module:
+        # Get the file path of the Elasticsearch class
+        es_import = Path(inspect.getfile(type(es)))
 
-    # Walk up the file path to the directory that contains
-    # "elasticsearch" ... this should be either "elasticsearch1" for a V1
-    # or "elasticsearch" for a later version.
-    #
-    # In a unit test environment, we won't recognize the mock path, and
-    # for that and as a fallback, if we get to the root without finding
-    # a match, just import 'elasticsearch'.
-    path = es_import.parent
-    while "elasticsearch" not in path.name and path.name != "":
-        path = path.parent
-    module = path.name
-    if module == "":
-        module = "elasticsearch"
+        # Walk up the file path to the directory that contains
+        # "elasticsearch" ... this should be either "elasticsearch1" for a V1
+        # or "elasticsearch" for a later version.
+        #
+        # In a unit test environment, we won't recognize the mock path, and
+        # for that and as a fallback, if we get to the root without finding
+        # a match, just import 'elasticsearch'.
+        path = es_import.parent
+        while "elasticsearch" not in path.name and path.name != "":
+            path = path.parent
+        module = path.name
+        if module == "":
+            logger.warning(
+                """Unable to determine Elasticsearch module algorithmically;
+                you can override the default 'elasticsearch' by setting a
+                'force_elastic_search_module' property on your Elasticsearch()
+                object; for example, if 'es = Elasticsearch()' then
+                'es.force_elastic_search_module=elasticsearch1'
+                """
+            )
+            module = "elasticsearch"
 
     # Dymamically import the module so that we can identify, import, and
     # bind the sub-modules we need.
@@ -231,8 +250,8 @@ def put_template(
         requirements described above.)
     """
     assert name is not None and mapping_name is not None and body is not None
-    _import_elasticsearch(es)
     logger = logging.getLogger()
+    _import_elasticsearch(es, logger)
     retry = True
     retry_count = 0
     original_no_version = False
@@ -336,7 +355,7 @@ def streaming_bulk(es, actions, errorsfp, logger):
         duplicate, and failed documents, along with number of times a bulk
         request was retried.
     """
-    _import_elasticsearch(es)
+    _import_elasticsearch(es, logger)
     return _internal_bulk(
         es, actions, errorsfp, helpers.streaming_bulk, logger
     )
@@ -368,7 +387,7 @@ def parallel_bulk(
         duplicate, and failed documents, along with number of times a bulk
         request was retried.
     """
-    _import_elasticsearch(es)
+    _import_elasticsearch(es, logger)
     return _internal_bulk(
         es, actions, errorsfp, helpers.parallel_bulk, logger,
         chunk_size=chunk_size, max_chunk_bytes=max_chunk_bytes,

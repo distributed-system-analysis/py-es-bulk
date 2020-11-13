@@ -12,6 +12,7 @@ class MockException(Exception):
 class MockElasticsearch():
     def __init__(self, mock):
         self.indices = mock
+        self.force_elastic_search_module = "elasticsearch"
 
 
 class MockTemplateApis():
