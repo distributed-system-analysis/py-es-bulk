@@ -98,7 +98,7 @@ def _import_elasticsearch(es, logger):
 
 
 # Version of py-es-bulk
-__VERSION__ = "2.0.1"
+__VERSION__ = "2.1.0"
 
 # Use the random number generator provided by the host OS to calculate our
 # random backoff.
