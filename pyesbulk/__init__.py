@@ -49,12 +49,9 @@ def _import_elasticsearch(es, logger):
     module = None
     try:
         module = es.force_elastic_search_module
-        logger.info("Using Elasticsearch module '%s'", module)
     except AttributeError:
         # No override was specified, so we'll look for a real module path
-        logger.info(
-            "Attempting to determine Elasticsearch module algorithmically"
-        )
+        pass
 
     if not module:
         # Get the file path of the Elasticsearch class
@@ -72,7 +69,7 @@ def _import_elasticsearch(es, logger):
             path = path.parent
         module = path.name
         if module == "":
-            logger.warning(
+            logger.info(
                 """Unable to determine Elasticsearch module algorithmically;
                 you can override the default 'elasticsearch' by setting a
                 'force_elastic_search_module' property on your Elasticsearch()
@@ -98,7 +95,7 @@ def _import_elasticsearch(es, logger):
 
 
 # Version of py-es-bulk
-__VERSION__ = "2.1.0"
+__VERSION__ = "2.1.1"
 
 # Use the random number generator provided by the host OS to calculate our
 # random backoff.
