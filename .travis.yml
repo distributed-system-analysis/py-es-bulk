@@ -9,5 +9,5 @@ python:
   - "3.8"
 script:
   - flake8 .
-  - pytest
+  - python3 -m pytest
   - python3 setup.py sdist bdist_wheel
